@@ -140,6 +140,54 @@ func (s *TaskService) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
+// BeginProcessing claims a task for summarisation, returning false when another
+// worker already holds it (or it is already finished). This is the concurrency
+// guard for duplicate deliveries.
+func (s *TaskService) BeginProcessing(ctx context.Context, id uuid.UUID) (bool, error) {
+	claimed, err := s.repo.MarkProcessing(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	if claimed {
+		// The cached copy still says `pending`; drop it so readers do not see a
+		// stale status while the worker runs.
+		if err := s.cache.Del(ctx, taskCacheKeyPrefix+id.String()).Err(); err != nil && !errors.Is(err, redis.Nil) {
+			slog.Warn("cache invalidate on claim failed", "task_id", id, "err", err)
+		}
+	}
+	return claimed, nil
+}
+
+// FindStale exposes the stale-work query to the reconciler.
+func (s *TaskService) FindStale(ctx context.Context, pendingBefore, processingBefore time.Time, limit int) ([]model.Task, error) {
+	return s.repo.FindStale(ctx, pendingBefore, processingBefore, limit)
+}
+
+// RepublishCreated re-emits task.created for a task the reconciler judged
+// stranded, so the normal worker path picks it up again.
+//
+// A task found in `processing` is first reset to `pending`. Without that, the
+// republished event would reach BeginProcessing, fail its `status = pending`
+// condition, and be silently skipped -- leaving the task stuck forever, which
+// is the exact bug this reconciler exists to fix.
+func (s *TaskService) RepublishCreated(ctx context.Context, task model.Task) error {
+	if task.Status == model.TaskStatusProcessing {
+		if err := s.MarkPending(ctx, task.ID); err != nil {
+			return fmt.Errorf("reset stranded task %s: %w", task.ID, err)
+		}
+	}
+
+	body, err := event.New(event.RoutingTaskCreated, event.TaskCreatedPayload{
+		TaskID:      task.ID,
+		Title:       task.Title,
+		Description: task.Description,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal task.created for %s: %w", task.ID, err)
+	}
+	return s.pub.Publish(ctx, event.RoutingTaskCreated, body)
+}
+
 // ApplySummary records the LLM summary produced by the worker and refreshes the
 // cache so readers see the completed state.
 func (s *TaskService) ApplySummary(ctx context.Context, id uuid.UUID, summary string) error {
@@ -156,6 +204,18 @@ func (s *TaskService) ApplySummary(ctx context.Context, id uuid.UUID, summary st
 // MarkFailed flags a task whose processing failed terminally.
 func (s *TaskService) MarkFailed(ctx context.Context, id uuid.UUID) error {
 	return s.repo.UpdateStatus(ctx, id, model.TaskStatusFailed, "")
+}
+
+// MarkPending returns a claimed task to the queue after a transient failure, so
+// it is eligible for retry by the broker or rescue by the reconciler.
+func (s *TaskService) MarkPending(ctx context.Context, id uuid.UUID) error {
+	if err := s.repo.UpdateStatus(ctx, id, model.TaskStatusPending, ""); err != nil {
+		return err
+	}
+	if err := s.cache.Del(ctx, taskCacheKeyPrefix+id.String()).Err(); err != nil && !errors.Is(err, redis.Nil) {
+		slog.Warn("cache invalidate on reset failed", "task_id", id, "err", err)
+	}
+	return nil
 }
 
 func (s *TaskService) cacheSet(ctx context.Context, key string, task *model.Task) {

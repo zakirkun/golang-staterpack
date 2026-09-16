@@ -73,6 +73,48 @@ func TestValidateRequiresAPIKeyInProduction(t *testing.T) {
 	}
 }
 
+func TestReconcilerRejectsGraceShorterThanInterval(t *testing.T) {
+	// The sweep would otherwise outrun normal queue latency and republish work
+	// that is still in flight, causing duplicate LLM calls.
+	t.Setenv("RECONCILER_ENABLED", "true")
+	t.Setenv("RECONCILER_INTERVAL", "10m")
+	t.Setenv("RECONCILER_PENDING_GRACE", "1m")
+
+	if _, err := Load(""); err == nil {
+		t.Fatal("Load() error = nil, want a pending-grace/interval validation error")
+	}
+}
+
+func TestReconcilerAllowsGraceEqualToInterval(t *testing.T) {
+	t.Setenv("RECONCILER_ENABLED", "true")
+	t.Setenv("RECONCILER_INTERVAL", "5m")
+	t.Setenv("RECONCILER_PENDING_GRACE", "5m")
+
+	if _, err := Load(""); err != nil {
+		t.Fatalf("Load() error = %v, want nil (equal values are allowed)", err)
+	}
+}
+
+func TestReconcilerDefaultsAreValid(t *testing.T) {
+	// The shipped defaults must themselves satisfy the invariant, or the app
+	// would refuse to boot out of the box.
+	for _, k := range []string{"RECONCILER_INTERVAL", "RECONCILER_PENDING_GRACE", "RECONCILER_ENABLED"} {
+		t.Setenv(k, "")
+	}
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil with default reconciler settings", err)
+	}
+	if !cfg.Reconciler.Enabled {
+		t.Error("Reconciler.Enabled = false, want true by default")
+	}
+	if cfg.Reconciler.PendingGrace < cfg.Reconciler.Interval {
+		t.Errorf("default PendingGrace (%s) < Interval (%s)",
+			cfg.Reconciler.PendingGrace, cfg.Reconciler.Interval)
+	}
+}
+
 func TestDSN(t *testing.T) {
 	d := DBConfig{Host: "h", Port: 5432, User: "u", Password: "p", Name: "n", SSLMode: "disable"}
 	want := "host=h port=5432 user=u password=p dbname=n sslmode=disable"

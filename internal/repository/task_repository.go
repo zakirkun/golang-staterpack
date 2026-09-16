@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -25,6 +26,16 @@ type TaskRepository interface {
 	Update(ctx context.Context, t *model.Task) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status model.TaskStatus, summary string) error
 	Delete(ctx context.Context, id uuid.UUID) error
+
+	// MarkProcessing transitions a task to `processing` only if it is currently
+	// `pending`. The conditional update is what makes it safe when several
+	// workers pick up duplicate deliveries of the same task: exactly one wins.
+	// Returns true when this caller made the transition.
+	MarkProcessing(ctx context.Context, id uuid.UUID) (bool, error)
+
+	// FindStale returns tasks that look abandoned: `pending` rows older than
+	// pendingBefore, or `processing` rows last touched before processingBefore.
+	FindStale(ctx context.Context, pendingBefore, processingBefore time.Time, limit int) ([]model.Task, error)
 }
 
 type taskRepository struct {
@@ -110,6 +121,40 @@ func (r *taskRepository) Delete(ctx context.Context, id uuid.UUID) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+func (r *taskRepository) MarkProcessing(ctx context.Context, id uuid.UUID) (bool, error) {
+	res := r.db.WithContext(ctx).
+		Model(&model.Task{}).
+		Where("id = ? AND status = ?", id, model.TaskStatusPending).
+		Update("status", model.TaskStatusProcessing)
+	if res.Error != nil {
+		return false, fmt.Errorf("mark processing: %w", res.Error)
+	}
+	return res.RowsAffected == 1, nil
+}
+
+func (r *taskRepository) FindStale(ctx context.Context, pendingBefore, processingBefore time.Time, limit int) ([]model.Task, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+
+	var tasks []model.Task
+	// Two disjoint conditions: never-picked-up work, and work whose worker
+	// died mid-flight. Both are safe to republish; the consumer's conditional
+	// MarkProcessing prevents concurrent duplicates.
+	err := r.db.WithContext(ctx).
+		Where(
+			r.db.Where("status = ? AND created_at < ?", model.TaskStatusPending, pendingBefore).
+				Or("status = ? AND updated_at < ?", model.TaskStatusProcessing, processingBefore),
+		).
+		Order("created_at ASC").
+		Limit(limit).
+		Find(&tasks).Error
+	if err != nil {
+		return nil, fmt.Errorf("find stale tasks: %w", err)
+	}
+	return tasks, nil
 }
 
 // AutoMigrate applies the schema for all registered models.

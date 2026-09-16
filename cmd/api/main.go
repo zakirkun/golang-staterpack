@@ -19,6 +19,7 @@ import (
 	"github.com/zakirkun/golang-staterpack/internal/config"
 	"github.com/zakirkun/golang-staterpack/internal/llm"
 	"github.com/zakirkun/golang-staterpack/internal/logger"
+	"github.com/zakirkun/golang-staterpack/internal/reconciler"
 	"github.com/zakirkun/golang-staterpack/internal/repository"
 	"github.com/zakirkun/golang-staterpack/internal/service"
 	"github.com/zakirkun/golang-staterpack/internal/storage"
@@ -119,12 +120,28 @@ func run(envFile string, migrateOnly bool) error {
 	taskRepo := repository.NewTaskRepository(db)
 	taskSvc := service.NewTaskService(taskRepo, brk, rdb)
 
-	summarizer := worker.NewTaskSummarizer(taskSvc, llmClient)
+	dedupe := broker.NewDedupe(rdb, cfg.Reconciler.DedupeTTL)
+
+	summarizer := worker.NewTaskSummarizer(taskSvc, llmClient, dedupe)
 	consumer, err := summarizer.Register(brk)
 	if err != nil {
 		return fmt.Errorf("register summarizer worker: %w", err)
 	}
 	log.Info("summarizer worker registered", "queue", broker.QueueTaskEvents)
+
+	// --- Reconciler -------------------------------------------------------
+	// Rescues tasks whose publish was lost or whose worker died mid-flight.
+	recon := reconciler.New(taskSvc, reconciler.Options{
+		Interval:          cfg.Reconciler.Interval,
+		PendingGrace:      cfg.Reconciler.PendingGrace,
+		ProcessingTimeout: cfg.Reconciler.ProcessingTimeout,
+		BatchSize:         cfg.Reconciler.BatchSize,
+	})
+	if cfg.Reconciler.Enabled {
+		go recon.Run(ctx)
+	} else {
+		log.Warn("reconciler disabled; stranded tasks will not be rescued")
+	}
 
 	// --- HTTP -------------------------------------------------------------
 	app := newFiberApp(cfg)

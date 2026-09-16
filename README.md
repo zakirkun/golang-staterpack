@@ -29,10 +29,11 @@ internal/
   model/                     GORM entities
   repository/                persistence (interface + GORM impl), migrations
   service/                   use cases; depends on interfaces, not infra
-  broker/                    RabbitMQ publisher + consumer (retry + DLQ)
+  broker/                    RabbitMQ publisher + consumer (retry + DLQ) + dedupe
   event/                     message contract shared by producers/consumers
   llm/                       LangChain Go client behind a small interface
   worker/                    background consumers (LLM summariser)
+  reconciler/                background sweep rescuing stranded tasks
   storage/                   Postgres + Redis constructors
   transport/http/            Fiber router, middleware, handlers
 deploy/k8s/                  namespace, configmap, secret, deployment, svc, hpa, pdb, ingress, job
@@ -98,6 +99,11 @@ Errors use one envelope:
 { "error": "resource not found", "code": "not_found", "trace_id": "..." }
 ```
 
+A task moves through `pending` → `processing` → `completed`, or `pending` →
+`processing` → `pending` on a transient failure (eligible for retry). A task
+whose processing fails terminally can be marked `failed` via
+`TaskService.MarkFailed`.
+
 ## Design decisions worth knowing
 
 **Liveness vs readiness are separated on purpose.** `/health/live` touches
@@ -111,13 +117,35 @@ outage should degrade latency, not availability.
 
 **Publishing does not fail the request.** `Create` commits to Postgres *then*
 publishes. If the publish fails the task still exists and the error is logged —
-losing a summary is better than losing a write. A reconciliation sweep over
-`status = 'pending'` is the natural follow-up.
+losing a summary is better than losing a write. The reconciler (below) is what
+rescues those tasks; without it they would sit in `pending` forever, silently.
 
 **Consumers retry with backoff, then dead-letter.** A failed message is
 republished with an incremented `x-retry-count` header (1s, 2s, 4s) up to
 `MaxRetries`, then nacked to the DLQ. Undecodable payloads are acked and dropped
 rather than retried, since they can never succeed.
+
+**The reconciler rescues stranded work.** `internal/reconciler` runs a ticker
+that finds tasks stuck in `pending` longer than `RECONCILER_PENDING_GRACE` or in
+`processing` longer than `RECONCILER_PROCESSING_TIMEOUT`, and republishes
+`task.created` for each. A task found in `processing` is reset to `pending`
+first — otherwise the redelivered event would fail the pending-only claim and
+the task would stay stuck, which is the bug the sweep exists to fix.
+
+**Duplicate suppression is Redis-backed and therefore best-effort.** RabbitMQ is
+at-least-once, so a redelivered message carries the same envelope ID; the worker
+claims it with `SETNX processed:event:<id>` (TTL `DEDUPE_TTL`) and drops the
+duplicate. This is *not* a durable guarantee: a Redis flush, eviction, or
+failover silently restores the ability to double-process, and each duplicate is
+a second paid LLM call. `broker.Dedupe` fails open (processes anyway, with a
+warning) when Redis is unreachable. **If duplicate side effects are
+unacceptable, replace it with a `processed_events` table in Postgres** — the
+interface is deliberately narrow so that swap touches one call site.
+
+**Two guards, not one.** Dedupe stops the same *event* running twice;
+`BeginProcessing` stops two *workers* owning the same task. The latter is a
+conditional `UPDATE ... WHERE status = 'pending'`, so exactly one winner is
+possible even if two deliveries slip past the dedupe guard.
 
 **Migrations run as a Job, not at boot.** The Deployment sets
 `DB_AUTO_MIGRATE=false` so replicas never race each other applying DDL;
@@ -137,12 +165,18 @@ kubectl apply -f deploy/k8s/12-hpa.yaml -f deploy/k8s/14-pdb.yaml
 
 **The LLM degrades gracefully.** With no `LLM_API_KEY` the app still boots:
 CRUD works, and the summariser becomes a no-op instead of flooding the DLQ.
+- **The reconciler refuses a misconfiguration.** `RECONCILER_PENDING_GRACE` must
+  be `>= RECONCILER_INTERVAL`; otherwise the sweep could outrun normal queue
+  latency and republish work that is merely in flight, causing duplicate LLM
+  calls. The app fails to start rather than do that.
+
 
 ## Configuration
 
 All configuration is environment-driven with working defaults; see
 `.env.example` for the full list with comments. In production `LLM_API_KEY` is
-required (validated at boot).
+required, and `RECONCILER_PENDING_GRACE` must be at least
+`RECONCILER_INTERVAL` — both validated at boot.
 
 ## Notes on the LLM client
 
@@ -160,7 +194,9 @@ implementing `llm.Client` (`Complete` + `Summarize` + `Model`) — three methods
 3. `internal/service/` — add the use case, depending on the repository interface.
 4. `internal/transport/http/` — add a handler, register routes in `router.go`.
 5. If it is async: add the payload to `internal/event`, a handler in
-   `internal/worker`, and register the consumer in `cmd/api/main.go`.
+   `internal/worker`, and register the consumer in `cmd/api/main.go`. Make the
+   handler idempotent (claim via `broker.Dedupe`) and give the entity a status
+   the reconciler can query, or a lost message will strand it silently.
 
 ## Verification status
 

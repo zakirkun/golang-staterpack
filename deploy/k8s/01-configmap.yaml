@@ -30,6 +30,13 @@ data:
   RABBITMQ_EXCHANGE: "app.events"
   RABBITMQ_PREFETCH: "10"
 
+  RECONCILER_ENABLED: "true"
+  RECONCILER_INTERVAL: "1m"
+  RECONCILER_PENDING_GRACE: "5m"
+  RECONCILER_PROCESSING_TIMEOUT: "10m"
+  RECONCILER_BATCH_SIZE: "100"
+  DEDUPE_TTL: "24h"
+
   # DeepSeek V4.1 Flash serves an OpenAI-compatible API.
   LLM_PROVIDER: "deepseek"
   LLM_BASE_URL: "https://api.deepseek.com/v1"

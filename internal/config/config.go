@@ -14,13 +14,32 @@ import (
 // Config is the root configuration tree. Every field has a sane default so the
 // application can boot in a local dev environment with nothing but a .env file.
 type Config struct {
-	App     AppConfig
-	HTTP    HTTPConfig
-	DB      DBConfig
-	Redis   RedisConfig
-	Broker  BrokerConfig
-	LLM     LLMConfig
-	Metrics MetricsConfig
+	App        AppConfig
+	HTTP       HTTPConfig
+	DB         DBConfig
+	Redis      RedisConfig
+	Broker     BrokerConfig
+	LLM        LLMConfig
+	Metrics    MetricsConfig
+	Reconciler ReconcilerConfig
+}
+
+// ReconcilerConfig controls the background sweep that rescues tasks stranded by
+// a lost publish or a dead worker.
+type ReconcilerConfig struct {
+	Enabled bool
+	// Interval between sweeps.
+	Interval time.Duration
+	// PendingGrace is how long a task may wait before being considered
+	// stranded. Must exceed normal queue latency.
+	PendingGrace time.Duration
+	// ProcessingTimeout is how long before a `processing` worker is presumed
+	// dead.
+	ProcessingTimeout time.Duration
+	// BatchSize bounds how many tasks one sweep republishes.
+	BatchSize int
+	// DedupeTTL is how long the Redis duplicate-suppression marker is kept.
+	DedupeTTL time.Duration
 }
 
 type AppConfig struct {
@@ -144,6 +163,14 @@ func Load(envFile string) (*Config, error) {
 		Metrics: MetricsConfig{
 			Enabled: getBool("METRICS_ENABLED", true),
 		},
+		Reconciler: ReconcilerConfig{
+			Enabled:           getBool("RECONCILER_ENABLED", true),
+			Interval:          getDuration("RECONCILER_INTERVAL", 1*time.Minute),
+			PendingGrace:      getDuration("RECONCILER_PENDING_GRACE", 5*time.Minute),
+			ProcessingTimeout: getDuration("RECONCILER_PROCESSING_TIMEOUT", 10*time.Minute),
+			BatchSize:         getInt("RECONCILER_BATCH_SIZE", 100),
+			DedupeTTL:         getDuration("DEDUPE_TTL", 24*time.Hour),
+		},
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -164,6 +191,15 @@ func (c *Config) validate() error {
 	}
 	if c.App.IsProduction() && c.LLM.APIKey == "" {
 		return fmt.Errorf("config: LLM_API_KEY is required in production")
+	}
+	// A grace window shorter than the sweep interval means the reconciler could
+	// outrun normal queue latency and republish work that is merely in flight,
+	// producing duplicate LLM calls. Refuse to start rather than do that.
+	if c.Reconciler.Enabled && c.Reconciler.PendingGrace < c.Reconciler.Interval {
+		return fmt.Errorf(
+			"config: RECONCILER_PENDING_GRACE (%s) must be >= RECONCILER_INTERVAL (%s)",
+			c.Reconciler.PendingGrace, c.Reconciler.Interval,
+		)
 	}
 	return nil
 }
