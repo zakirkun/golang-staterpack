@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-config
+  namespace: staterpack
+data:
+  APP_ENV: "production"
+  APP_NAME: "golang-staterpack"
+  LOG_LEVEL: "info"
+  HTTP_PORT: "8080"
+  HTTP_READ_TIMEOUT: "15s"
+  HTTP_WRITE_TIMEOUT: "15s"
+  HTTP_IDLE_TIMEOUT: "60s"
+  SHUTDOWN_TIMEOUT: "20s"
+
+  POSTGRES_HOST: "postgres.staterpack.svc.cluster.local"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "app"
+  POSTGRES_SSLMODE: "require"
+  POSTGRES_MAX_OPEN_CONNS: "25"
+  POSTGRES_MAX_IDLE_CONNS: "5"
+  POSTGRES_CONN_MAX_LIFETIME: "30m"
+  # The migration Job runs AutoMigrate; the Deployment does not.
+  DB_AUTO_MIGRATE: "false"
+
+  REDIS_ADDR: "redis.staterpack.svc.cluster.local:6379"
+  REDIS_DB: "0"
+
+  RABBITMQ_URL: "amqp://guest:guest@rabbitmq.staterpack.svc.cluster.local:5672/"
+  RABBITMQ_EXCHANGE: "app.events"
+  RABBITMQ_PREFETCH: "10"
+
+  # DeepSeek V4.1 Flash serves an OpenAI-compatible API.
+  LLM_PROVIDER: "deepseek"
+  LLM_BASE_URL: "https://api.deepseek.com/v1"
+  LLM_MODEL: "deepseek-v4.1-flash"
+  LLM_TEMPERATURE: "0.2"
+  LLM_MAX_TOKENS: "2048"
+  LLM_TIMEOUT: "60s"
+
+  METRICS_ENABLED: "true"
