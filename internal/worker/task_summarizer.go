@@ -8,11 +8,11 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/example/golang-staterpack/internal/broker"
-	"github.com/example/golang-staterpack/internal/event"
-	"github.com/example/golang-staterpack/internal/llm"
-	"github.com/example/golang-staterpack/internal/repository"
-	"github.com/example/golang-staterpack/internal/service"
+	"github.com/zakirkun/golang-staterpack/internal/broker"
+	"github.com/zakirkun/golang-staterpack/internal/event"
+	"github.com/zakirkun/golang-staterpack/internal/llm"
+	"github.com/zakirkun/golang-staterpack/internal/repository"
+	"github.com/zakirkun/golang-staterpack/internal/service"
 )
 
 // TaskSummarizer consumes task.created, asks the LLM for a summary and writes

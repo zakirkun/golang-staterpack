@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"github.com/example/golang-staterpack/internal/model"
+	"github.com/zakirkun/golang-staterpack/internal/model"
 )
 
 // ErrNotFound is returned when a row does not exist, mapping the storage

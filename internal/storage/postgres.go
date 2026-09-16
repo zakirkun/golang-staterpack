@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	"github.com/example/golang-staterpack/internal/config"
+	"github.com/zakirkun/golang-staterpack/internal/config"
 )
 
 // NewPostgres opens a GORM connection, configures the pool and verifies the

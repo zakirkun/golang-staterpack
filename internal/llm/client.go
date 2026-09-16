@@ -11,7 +11,7 @@ import (
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/openai"
 
-	"github.com/example/golang-staterpack/internal/config"
+	"github.com/zakirkun/golang-staterpack/internal/config"
 )
 
 // Client is the seam the service layer codes against. It keeps the provider

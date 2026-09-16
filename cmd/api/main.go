@@ -15,15 +15,15 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/example/golang-staterpack/internal/broker"
-	"github.com/example/golang-staterpack/internal/config"
-	"github.com/example/golang-staterpack/internal/llm"
-	"github.com/example/golang-staterpack/internal/logger"
-	"github.com/example/golang-staterpack/internal/repository"
-	"github.com/example/golang-staterpack/internal/service"
-	"github.com/example/golang-staterpack/internal/storage"
-	transport "github.com/example/golang-staterpack/internal/transport/http"
-	"github.com/example/golang-staterpack/internal/worker"
+	"github.com/zakirkun/golang-staterpack/internal/broker"
+	"github.com/zakirkun/golang-staterpack/internal/config"
+	"github.com/zakirkun/golang-staterpack/internal/llm"
+	"github.com/zakirkun/golang-staterpack/internal/logger"
+	"github.com/zakirkun/golang-staterpack/internal/repository"
+	"github.com/zakirkun/golang-staterpack/internal/service"
+	"github.com/zakirkun/golang-staterpack/internal/storage"
+	transport "github.com/zakirkun/golang-staterpack/internal/transport/http"
+	"github.com/zakirkun/golang-staterpack/internal/worker"
 )
 
 const (

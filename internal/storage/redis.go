@@ -7,7 +7,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/example/golang-staterpack/internal/config"
+	"github.com/zakirkun/golang-staterpack/internal/config"
 )
 
 // NewRedis builds a Redis client and pings it to fail fast at boot.

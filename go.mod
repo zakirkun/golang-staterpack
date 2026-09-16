@@ -1,4 +1,4 @@
-module github.com/example/golang-staterpack
+module github.com/zakirkun/golang-staterpack
 
 go 1.25
 

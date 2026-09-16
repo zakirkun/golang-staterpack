@@ -8,8 +8,8 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 
-	"github.com/example/golang-staterpack/internal/repository"
-	"github.com/example/golang-staterpack/internal/service"
+	"github.com/zakirkun/golang-staterpack/internal/repository"
+	"github.com/zakirkun/golang-staterpack/internal/service"
 )
 
 // RequestIDHeader is echoed on every response.

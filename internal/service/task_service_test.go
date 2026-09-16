@@ -9,8 +9,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/example/golang-staterpack/internal/model"
-	"github.com/example/golang-staterpack/internal/repository"
+	"github.com/zakirkun/golang-staterpack/internal/model"
+	"github.com/zakirkun/golang-staterpack/internal/repository"
 )
 
 // --- fakes -------------------------------------------------------------------

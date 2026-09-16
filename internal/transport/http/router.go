@@ -7,7 +7,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
-	"github.com/example/golang-staterpack/internal/service"
+	"github.com/zakirkun/golang-staterpack/internal/service"
 )
 
 // contextWithTimeout derives a context from the request's own context. Using
